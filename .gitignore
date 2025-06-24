@@ -12,6 +12,7 @@ coverage/
 
 # Production
 /build
+dist/
 
 # Misc
 .DS_Store
@@ -24,6 +25,10 @@ yarn-error.log*
 
 # Local env files
 .env*.local
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # IDE
 .idea/
@@ -37,3 +42,7 @@ next-env.d.ts
 
 # Temp files
 temp_*
+=======
+# Vite
+*.log
+>>>>>>> origin/main
