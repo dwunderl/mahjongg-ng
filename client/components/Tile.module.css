@@ -1,0 +1,167 @@
+.tile {
+  width: 45px;
+  height: 65px;
+  border: 1px solid #333;
+  border-radius: 5px;
+  background-color: #fdf5e6;
+  margin: 2px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  box-shadow: 1px 1px 3px rgba(0,0,0,0.2);
+  user-select: none;
+  font-family: Arial, sans-serif;
+  font-weight: bold;
+  font-size: 1.2em;
+  line-height: 1.2;
+  padding: 2px;
+  box-sizing: border-box;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, z-index 0.15s ease;
+}
+
+.tileContent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* Tile types */
+.crack { 
+  color: #c00 !important; /* Force red color for crack tiles */
+  background-color: #ffdddd !important; /* Light red background for crack tiles */
+}
+
+.tileBam { 
+  color: #060; /* Green for Bams */
+  background-color: #ddffdd !important; /* Light green background for bam tiles */
+}
+
+.tileDot { 
+  color: #000; /* Black for Dots */
+  background-color: #fff !important; /* White background for Dots */
+}
+
+/* Special tiles */
+
+.bam {
+  color: #060; /* Green for Bams */
+  background-color: #ddffdd !important; /* Light green background for bam tiles */
+}
+
+.dot {
+  color: #000; /* Black for Dots */
+  background-color: #fff !important; /* White background for Dots */
+}
+
+/* Dragon tiles - more specific selectors to override base font size */
+.tile.dragonRed,
+.tile.dragonGreen,
+.tile.dragonWhite {
+  font-size: 1em !important; /* Reset base font size */
+}
+
+.tile.dragonRed .tileContent,
+.tile.dragonGreen .tileContent,
+.tile.dragonWhite .tileContent {
+  font-size: 0.25em !important; /* Apply small font size to content */
+  line-height: 1.1 !important;
+  word-break: break-word;
+  text-align: center;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tile.dragonRed {
+  background-color: #c00 !important; /* Red background */
+  color: #fff !important; /* White text */
+  border-color: #000 !important;
+}
+
+.tile.dragonGreen {
+  background-color: #060 !important; /* Green background */
+  color: #fff !important; /* White text */
+  border-color: #000 !important;
+}
+
+.tile.dragonWhite {
+  background-color: #fff !important; /* White background */
+  color: #000 !important; /* Black text */
+  border-color: #000 !important;
+}
+
+/* Wind tiles */
+.wind {
+  color: #000; /* Black text */
+  font-weight: bold;
+  font-size: 1.8em !important;
+  background-color: #ffffcc !important; /* Light yellow background for wind tiles */
+}
+
+/* Flower tiles */
+.flower {
+  color: #ff69b4; /* Pink */
+  font-size: 1.8em !important;
+  background-color: #f0e0ff !important; /* Light purple background for flower tiles */
+}
+
+/* Joker tiles */
+.joker {
+  color: #800080; /* Purple */
+  font-size: 1.8em !important;
+  background-color: #a0a0a0 !important; /* Medium gray background for joker tiles */
+}
+
+/* Corner text (suit indicators) */
+.tile::before {
+  content: attr(data-corner);
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 8px !important;
+  font-weight: normal !important;
+  opacity: 0.8;
+  line-height: 1 !important;
+  font-family: Arial, sans-serif !important;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  z-index: 10;
+}
+
+/* Hover effect */
+.tile:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 1px 2px 5px rgba(0,0,0,0.3) !important;
+  z-index: 20 !important;
+}
+
+/* Selected state */
+.selected {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+  z-index: 30 !important;
+  border: 2px solid #007bff !important;
+}
+
+/* Animation for dealing */
+@keyframes deal {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Apply animation with delay */
+.tile {
+  animation: deal 0.3s ease-out forwards;
+}
