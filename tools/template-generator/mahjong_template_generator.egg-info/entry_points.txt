@@ -1,0 +1,2 @@
+[console_scripts]
+generate-mahjong-templates = generate_templates:main

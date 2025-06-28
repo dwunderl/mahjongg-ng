@@ -1,0 +1,11 @@
+README.md
+setup.py
+mahjong_template_generator.egg-info/PKG-INFO
+mahjong_template_generator.egg-info/SOURCES.txt
+mahjong_template_generator.egg-info/dependency_links.txt
+mahjong_template_generator.egg-info/entry_points.txt
+mahjong_template_generator.egg-info/top_level.txt
+mtg/__init__.py
+mtg/core.py
+mtg/templates/__init__.py
+mtg/templates/codelib.py
