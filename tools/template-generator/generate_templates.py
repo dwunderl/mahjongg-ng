@@ -106,6 +106,23 @@ def save_templates(output_path: str = None) -> str:
         logger.info(f"Successfully moved {temp_path} to {output_path}")
         logger.info(f"Successfully generated {len(output['templates'])} templates to {output_path}")
         
+        # Copy to client's public data directory
+        try:
+            # Get the project root directory (two levels up from tools/template-generator)
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+            client_public_path = os.path.join(project_root, 'client', 'public', 'data', 'hand_templates.json')
+            
+            # Ensure the target directory exists
+            os.makedirs(os.path.dirname(client_public_path), exist_ok=True)
+            
+            # Copy the file
+            import shutil
+            shutil.copy2(output_path, client_public_path)
+            logger.info(f"Successfully copied templates to {client_public_path}")
+        except Exception as copy_error:
+            logger.warning(f"Warning: Could not copy templates to client public directory: {str(copy_error)}")
+            logger.debug("Debug info:", exc_info=True)
+        
         return output_path
         
     except Exception as e:
