@@ -53,19 +53,59 @@ export class SimpleTileMatcher {
   }
 
   /**
-   * Match the hand against the template variation using exact matching only
+   * Identify groups (pungs, kongs, quints) in the template variation
+   * Returns a map of group IDs to tile indices in the group
+   */
+  private identifyGroups(): Map<number, number[]> {
+    const groups = new Map<number, number[]>();
+    const groupStarts = new Map<string, number>();
+    
+    // First pass: identify potential group starts
+    for (let i = 0; i < this.variation.requiredTiles.length; i++) {
+      const tile = this.variation.requiredTiles[i];
+      
+      if (tile.groupSize >= 3) { // Only consider pungs (3), kongs (4), or quints (5+)
+        const groupKey = `${tile.code}-${tile.groupSize}`;
+        if (!groupStarts.has(groupKey)) {
+          groupStarts.set(groupKey, i);
+        }
+      }
+    }
+    
+    // Second pass: create groups
+    let groupId = 0;
+    for (const [groupKey, startIdx] of groupStarts.entries()) {
+      const groupSize = parseInt(groupKey.split('-')[1]);
+      const groupIndices = [];
+      
+      // Add tiles to the group
+      for (let i = 0; i < groupSize; i++) {
+        const tileIdx = startIdx + i;
+        if (tileIdx < this.variation.requiredTiles.length) {
+          groupIndices.push(tileIdx);
+        }
+      }
+      
+      groups.set(groupId++, groupIndices);
+    }
+    
+    return groups;
+  }
+
+  /**
+   * Match the hand against the template variation, including joker matching
    */
   public match(): SimpleMatchResult {
     const matchedTiles = new Set<number>(); // Indices of matched hand tiles
     const matchedVariationTiles = new Set<number>(); // Indices of matched variation tiles
     const matchedIndices: number[] = [];
     
-    // First pass: exact matching
+    // First pass: exact matching (skip jokers)
     for (let i = 0; i < this.hand.length; i++) {
       let handTile = this.hand[i];
       
       // Skip jokers in this phase
-      if (handTile === 'J') continue;
+      if (handTile === 'J' || handTile === 'JK') continue;
       
       // Normalize dragon tile codes in hand
       handTile = this.normalizeDragonCode(handTile);
@@ -84,6 +124,56 @@ export class SimpleTileMatcher {
           matchedIndices.push(i);
           matchedVariationTiles.add(j);
           break; // Move to next hand tile
+        }
+      }
+    }
+    
+    // Second pass: joker matching
+    const groups = this.identifyGroups();
+    
+    // Collect all joker indices from hand that aren't already matched
+    const jokerIndices = [];
+    for (let i = 0; i < this.hand.length; i++) {
+      const tileCode = this.hand[i];
+      if ((tileCode === 'J' || tileCode === 'JK') && !matchedTiles.has(i)) {
+        jokerIndices.push(i);
+      }
+    }
+    
+    // Process jokers one by one
+    for (const jokerIndex of jokerIndices) {
+      let jokerMatched = false;
+      
+      // Try to match joker to an incomplete group first
+      for (const [_, groupIndices] of groups.entries()) {
+        const matchedInGroup = groupIndices.filter(i => matchedVariationTiles.has(i)).length;
+        const groupSize = groupIndices.length;
+        
+        // Skip complete groups
+        if (matchedInGroup >= groupSize) {
+          continue;
+        }
+        
+        // Find first unmatched tile in this group
+        const unmatchedInGroup = groupIndices.find(i => !matchedVariationTiles.has(i));
+        if (unmatchedInGroup !== undefined) {
+          matchedTiles.add(jokerIndex);
+          matchedIndices.push(jokerIndex);
+          matchedVariationTiles.add(unmatchedInGroup);
+          jokerMatched = true;
+          break;
+        }
+      }
+      
+      // If joker wasn't used in a group, try to match it to any unmatched tile
+      if (!jokerMatched) {
+        for (let j = 0; j < this.variation.requiredTiles.length; j++) {
+          if (!matchedVariationTiles.has(j)) {
+            matchedTiles.add(jokerIndex);
+            matchedIndices.push(jokerIndex);
+            matchedVariationTiles.add(j);
+            break;
+          }
         }
       }
     }
