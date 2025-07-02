@@ -1,0 +1,312 @@
+/* Main container for the hand display */
+.handContainer {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 10px 0;
+  background-color: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Sort controls */
+.sortControls {
+  display: flex;
+  gap: 10px;
+  padding: 0 5px;
+  margin-bottom: -5px;
+}
+
+.sortButton {
+  background: #f0f0f0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sortButton:hover {
+  background: #e0e0e0;
+}
+
+.sortButton.activeSort {
+  background: #4a90e2;
+  color: white;
+  border-color: #3a7bc8;
+}
+
+/* Container for the tiles row */
+.tilesContainer {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  overflow-x: auto !important;
+  padding: 15px 10px !important;
+  margin: 0 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  -webkit-overflow-scrolling: touch !important;
+  min-height: 100px; /* Increased height for better visibility */
+  background-color: #e9f5e9; /* Light green background */
+  border-radius: 8px;
+  border: 1px solid #d0e0d0;
+  transition: all 0.3s ease;
+  gap: 2px;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.tilesContainer::-webkit-scrollbar {
+  height: 6px;
+  background-color: transparent;
+}
+
+.tilesContainer::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+/* Tile wrapper - contains the actual tile */
+.tileWrapper {
+  position: relative;
+  margin: 0 1px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: visible;
+}
+
+/* Match indicator (small dot) */
+.matchIndicator {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: #4caf50;
+  border: 2px solid white;
+  z-index: 3;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.3);
+}
+
+/* Matched tile styling */
+.tileWrapper.matched {
+  position: relative;
+  z-index: 2;
+  transform: translateY(-5px) scale(1.05);
+  transition: all 0.3s ease;
+  animation: pulse 1.5s infinite alternate;
+}
+
+.tileWrapper.matched .tile {
+  box-shadow: 
+    0 0 0 2px #4caf50,
+    0 0 10px rgba(76, 175, 80, 0.6);
+}
+
+/* Joker match styling */
+.tileWrapper .tile.jokerMatch {
+  box-shadow: 
+    0 0 0 2px #ff9800,
+    0 0 10px rgba(255, 152, 0, 0.6);
+}
+
+.tileWrapper .tile.jokerMatch .matchIndicator {
+  background-color: #ff9800;
+}
+
+@keyframes pulse {
+  from {
+    box-shadow: 
+      0 0 0 2px #4caf50,
+      0 0 10px rgba(76, 175, 80, 0.6);
+  }
+  to {
+    box-shadow: 
+      0 0 0 4px #4caf50,
+      0 0 15px rgba(76, 175, 80, 0.8);
+    transform: translateY(-7px) scale(1.08);
+  }
+}
+
+/* Add a subtle highlight to the tile container when tiles are matched */
+.tilesContainer:has(.matched) {
+  background-color: #e8f5e9;
+  box-shadow: inset 0 0 10px rgba(76, 175, 80, 0.2);
+}
+
+/* Empty state styling */
+.emptyState {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100px;
+  color: #666;
+  font-style: italic;
+  font-size: 14px;
+  background-color: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+  border: 1px dashed #ddd;
+}
+
+.emptyState {
+  width: 100%;
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  padding: 20px;
+  background-color: rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+}
+
+/* Match legend */
+.matchLegend {
+  display: flex;
+  gap: 15px;
+  margin-top: 10px;
+  padding: 8px 0;
+  justify-content: center;
+  font-size: 12px;
+  color: #555;
+  height: 30px; /* Fixed height to prevent layout shift */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  position: relative;
+}
+
+.matchLegend.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: opacity 0.2s ease;
+}
+
+.legendItem.hidden {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  visibility: hidden;
+}
+
+.legendColor {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.legendColor.matched {
+  background-color: #4caf50;
+}
+
+.legendColor.jokerMatch {
+  background-color: #ff9800;
+}
+
+/* Animation for joker matches */
+@keyframes jokerPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(255, 152, 0, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 152, 0, 0);
+  }
+}
+
+.jokerMatch {
+  animation: jokerPulse 2s infinite;
+}
+
+.tileWrapper {
+  position: relative;
+  margin: 0 !important;
+  transition: all 0.2s ease;
+  flex-shrink: 0 !important;
+  cursor: pointer;
+  transform: translateY(0);
+}
+
+.tileWrapper:hover {
+  transform: translateY(-5px);
+  z-index: 10;
+}
+
+.tileWrapper.selected {
+  transform: translateY(-10px) scale(1.05);
+  z-index: 20;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Animation for dealing tiles */
+@keyframes dealTile {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Animation for when tiles are being dealt */
+.tilesContainer.animating .tileWrapper {
+  animation: dealTile 0.3s ease-out forwards;
+}
+
+/* Empty state */
+.emptyState {
+  width: 100%;
+  text-align: center;
+  color: #666;
+  padding: 20px;
+  font-style: italic;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .tilesContainer {
+    padding: 10px 5px !important;
+    min-height: 90px;
+  }
+  
+  .sortControls {
+    padding: 0 5px;
+  }
+  
+  .sortButton {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+}
+
+/* Animation for when tiles are added */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tileWrapper {
+  animation: slideUp 0.3s ease-out forwards;
+}

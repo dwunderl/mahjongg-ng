@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TemplateMatchSummary } from '@/lib/analysis/SimpleHandAnalyzer';
 import HandDisplay from './HandDisplay';
 import { type Tile } from '@/types/tile';
@@ -33,7 +33,9 @@ export function SimpleHandAnalysisResults({
   error = null,
   hand
 }: SimpleHandAnalysisResultsProps) {
+  // State for template selection and sorting
   const [selectedTemplate, setSelectedTemplate] = useState<SelectedTemplateState>(null);
+  const [sortBy, setSortBy] = useState<'suit' | 'number'>('suit');
   
   // Handle template selection and variation cycling
   const handleTemplateClick = (templateId: string, event: React.MouseEvent) => {
@@ -46,6 +48,7 @@ export function SimpleHandAnalysisResults({
     if (selectedTemplate?.templateId === templateId) {
       const currentIndex = selectedTemplate.variationIndex;
       const nextIndex = (currentIndex + 1) % template.maxMatchedVariationsList.length;
+      
       setSelectedTemplate({
         templateId,
         variationIndex: nextIndex
@@ -60,15 +63,20 @@ export function SimpleHandAnalysisResults({
     }
   };
   
-  // Get the currently selected variation for highlighting
-  const getSelectedVariation = (): SimpleMatchResult | null => {
+  // Force a re-render when selectedTemplate changes
+  const [_, forceUpdate] = React.useState({});
+  
+  // Get the currently selected variation for display
+  const selectedVariation = React.useMemo(() => {
     if (!selectedTemplate) return null;
-    
     const template = results.find(t => t.templateId === selectedTemplate.templateId);
-    if (!template) return null;
-    
-    return template.maxMatchedVariationsList[selectedTemplate.variationIndex] || null;
-  };
+    return template?.maxMatchedVariationsList[selectedTemplate.variationIndex] || null;
+  }, [selectedTemplate, results, _]);
+  
+  // Force update when selected template changes
+  React.useEffect(() => {
+    forceUpdate({});
+  }, [selectedTemplate]);
   
   // Get the current variation display text
   const getVariationText = (template: TemplateMatchSummary): string => {
@@ -79,7 +87,7 @@ export function SimpleHandAnalysisResults({
       return ` (var ${currentVar} of ${template.maxMatchedVariations})`;
     }
     
-    return ` (${template.maxMatchedVariations} variations)`;
+    return '';
   };
   if (isLoading) {
     return <div className="p-4 text-gray-600">Analyzing hand...</div>;
@@ -95,13 +103,23 @@ export function SimpleHandAnalysisResults({
 
   // Show top 5 results
   const topResults = results.slice(0, 5);
-  const selectedVariation = getSelectedVariation();
 
-  // Function to get the selected template class
+  // Function to get the selected template class with enhanced styling
   const getSelectedClass = (templateId: string) => {
-    return selectedTemplate?.templateId === templateId 
-      ? 'ring-2 ring-blue-500 bg-blue-50' 
-      : 'hover:bg-gray-50';
+    const isSelected = selectedTemplate?.templateId === templateId;
+    return [
+      'transition-all duration-200',
+      isSelected 
+        ? 'bg-blue-100 border-l-4 border-blue-600 font-semibold shadow-sm' 
+        : 'hover:bg-gray-50',
+      isSelected ? 'text-blue-900' : 'text-gray-700',
+      'relative' // For potential absolute positioning of indicators
+    ].join(' ');
+  };
+  
+  // Toggle sort type
+  const toggleSort = () => {
+    setSortBy(prev => prev === 'suit' ? 'number' : 'suit');
   };
 
   return (
@@ -111,16 +129,22 @@ export function SimpleHandAnalysisResults({
       {/* Hand display with highlighted matches */}
       {hand.length > 0 && (
         <div className="mb-4 p-3 bg-white rounded-lg shadow-sm border">
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Your Hand</h4>
+          <div className="flex justify-between items-center mb-2">
+            <h4 className="text-sm font-medium text-gray-700">Your Hand</h4>
+            <button 
+              onClick={toggleSort}
+              className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded"
+              title="Toggle sort order"
+            >
+              Sort by: {sortBy === 'suit' ? 'Suit' : 'Number'}
+            </button>
+          </div>
           <HandDisplay 
             tiles={hand} 
-            matchedTileIndices={selectedVariation?.matchedTileIndices || []} 
+            matchedTileIndices={selectedVariation?.matchedTileIndices || []}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
           />
-          {selectedVariation && (
-            <div className="mt-2 text-xs text-gray-500">
-              Showing matches for: {selectedVariation.variantName}
-            </div>
-          )}
         </div>
       )}
       
@@ -128,40 +152,127 @@ export function SimpleHandAnalysisResults({
       <div className="border rounded-md divide-y">
         {topResults.map((result) => {
           const { matchedCount, totalTiles } = result.bestMatch;
+          
+          // Get the template to access category and image
+          const template = results.find(t => t.templateId === result.templateId);
+          const category = template?.category || 'UNKNOWN';
+          const imageString = template?.image || '';
+          
+          // Parse the colorized image string with inline styles
+          const renderColorizedString = (str: string) => {
+            if (!str) return null;
+            
+            console.log('Rendering colorized string:', str);
+            
+            // If the string doesn't contain any color tags, just return it as is
+            if (!str.includes('<')) {
+              return <span style={{ fontFamily: 'monospace' }}>{str}</span>;
+            }
+            
+            // Map color names to hex values
+            const colorMap: Record<string, string> = {
+              red: '#dc2626',
+              green: '#16a34a',
+              blue: '#2563eb',
+              black: '#1f2937',
+              white: '#f3f4f6',
+              yellow: '#eab308',
+              purple: '#9333ea',
+              gray: '#6b7280',
+              grey: '#6b7280',
+            };
+            
+            // Split by color tags and process each segment
+            const parts: JSX.Element[] = [];
+            let currentPos = 0;
+            let currentColor = colorMap['black'];
+            
+            // Process each color tag
+            const regex = /<([^>]+)>/g;
+            let match;
+            let partIndex = 0;
+            
+            while ((match = regex.exec(str)) !== null) {
+              // Add text before the tag
+              if (match.index > currentPos) {
+                const text = str.substring(currentPos, match.index);
+                if (text.trim()) {
+                  parts.push(
+                    <span 
+                      key={`t-${partIndex++}`}
+                      style={{
+                        fontFamily: 'monospace',
+                        color: currentColor,
+                        whiteSpace: 'pre'
+                      }}
+                    >
+                      {text}
+                    </span>
+                  );
+                }
+              }
+              
+              // Process the color tag
+              const color = match[1].toLowerCase();
+              currentColor = colorMap[color] || colorMap['black'];
+              currentPos = match.index + match[0].length;
+            }
+            
+            // Add any remaining text after the last tag
+            if (currentPos < str.length) {
+              const text = str.substring(currentPos);
+              if (text.trim()) {
+                parts.push(
+                  <span 
+                    key={`t-${partIndex++}`}
+                    style={{
+                      fontFamily: 'monospace',
+                      color: currentColor,
+                      whiteSpace: 'pre'
+                    }}
+                  >
+                    {text}
+                  </span>
+                );
+              }
+            }
+            
+            console.log('Rendered parts:', parts);
+            
+            return parts.length > 0 ? (
+              <div style={{ display: 'inline-flex', gap: '2px' }}>{parts}</div>
+            ) : (
+              <span style={{ fontFamily: 'monospace' }}>{str.replace(/<[^>]+>/g, '')}</span>
+            );
+          };
+          
           const isSelected = selectedTemplate?.templateId === result.templateId;
-          
-          // Format: Template Name, tiles=n, vars=m, totvars=o
-          const matchSummary = `${result.templateName}, tiles=${matchedCount}, vars=${result.maxMatchedVariations}, totvars=${result.variantCount}${getVariationText(result)}`;
-          
           return (
             <div 
               key={result.templateId} 
-              className={`p-3 cursor-pointer transition-colors ${getSelectedClass(result.templateId)}`}
+              className={`p-2 pl-3 cursor-pointer ${getSelectedClass(result.templateId)}`}
               onClick={(e) => handleTemplateClick(result.templateId, e)}
             >
-              <div className="flex justify-between items-center">
-                <span className="font-mono text-sm">
-                  {matchSummary}
+              <div className="flex items-center gap-1 text-sm whitespace-nowrap overflow-hidden">
+                <span className="font-semibold uppercase tracking-wider flex-shrink-0">
+                  {category} :
                 </span>
-                {isSelected && (
-                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                    Selected
-                  </span>
-                )}
-              </div>
-              <div className="mt-2">
-                <div className="bg-gray-200 rounded-full h-2.5 overflow-hidden">
-                  <div className="h-full rounded-full bg-blue-500" style={{ width: '100%' }} />
-                </div>
+                <span className="min-w-0 truncate px-1 flex-1">
+                  {renderColorizedString(imageString || result.templateName)}
+                </span>
+                <span className="whitespace-nowrap flex-shrink-0 text-sm">
+                  : Tiles={matchedCount} Vars={result.maxMatchedVariations} TotVars={result.variantCount}
+                  {isSelected && ` (Var ${selectedTemplate.variationIndex + 1} of ${result.maxMatchedVariations})`}
+                </span>
               </div>
             </div>
-          );
-        })}
+        );
+      })}
       </div>
       
       {/* Instructions */}
-      <div className="mt-3 text-xs text-gray-500">
-        Click a template to highlight matches. Click again to cycle through variations.
+      <div className="mt-4 text-sm text-gray-500">
+        Click on a template to highlight matching tiles in your hand
       </div>
     </div>
   );
