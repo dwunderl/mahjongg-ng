@@ -107,6 +107,7 @@ export function TemplateResultsTable({
           <col className="w-6" />    {/* Vars */}
           <col className="w-8" />    {/* TotVars */}
           <col className="w-12" />   {/* Var */}
+          <col className="w-10" />   {/* VARNUM */}
         </colgroup>
         <thead>
           <tr style={{ backgroundColor: '#f8fafc' }}>
@@ -170,6 +171,16 @@ export function TemplateResultsTable({
               fontSize: '0.7rem',
               letterSpacing: '0.03em'
             }} title="Current Variation">Var</th>
+            <th style={{
+              padding: '0.4rem 0.3rem',
+              textAlign: 'center',
+              border: '1px solid #e2e8f0',
+              fontWeight: 600,
+              color: '#475569',
+              textTransform: 'uppercase',
+              fontSize: '0.7rem',
+              letterSpacing: '0.03em'
+            }} title="Variation Number">VARNUM</th>
           </tr>
         </thead>
         <tbody className="bg-white">
@@ -261,20 +272,33 @@ export function TemplateResultsTable({
                   verticalAlign: 'middle',
                   color: isSelected ? '#1e40af' : '#1f2937'
                 }} title="Current Variation">
-                  {isSelected && variantCount > 1 && (
+                  {isSelected && variantCount > 0 && (
                     <span style={{
                       display: 'inline-block',
                       padding: '0.1rem 0.3rem',
                       borderRadius: '0.25rem',
-                      backgroundColor: '#dbeafe',
-                      color: '#1e40af',
+                      backgroundColor: variantCount > 1 ? '#dbeafe' : 'transparent',
+                      color: variantCount > 1 ? '#1e40af' : 'inherit',
                       fontSize: '0.65rem',
                       fontWeight: 500,
-                      lineHeight: '1.2'
+                      lineHeight: '1.2',
+                      minWidth: variantCount > 9 ? '2.5rem' : '1.8rem'
                     }}>
                       {currentVariantIndex + 1}/{variantCount}
                     </span>
                   )}
+                </td>
+                <td style={{
+                  padding: '0.4rem 0.3rem',
+                  border: '1px solid #e2e8f0',
+                  textAlign: 'center',
+                  verticalAlign: 'middle',
+                  fontFamily: 'monospace',
+                  backgroundColor: isSelected ? '#e0f2fe' : '#f8fafc',
+                  color: isSelected ? '#1e40af' : '#1f2937',
+                  fontWeight: isSelected ? 500 : 'normal'
+                }} title="Original Variation Index (1-based)">
+                  {isSelected ? result.maxMatchedVariationsList[currentVariantIndex]?.originalVariationIndex + 1 || '' : ''}
                 </td>
               </tr>
             );

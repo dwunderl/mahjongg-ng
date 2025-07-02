@@ -10,6 +10,7 @@ export interface SimpleMatchResult {
   totalTiles: number;
   matchPercentage: number;
   matchedTileIndices: number[]; // Indices of matched tiles in the hand
+  originalVariationIndex: number; // Original index in the full variations array
 }
 
 export class SimpleTileMatcher {
@@ -65,6 +66,7 @@ export class SimpleTileMatcher {
       const tile = this.variation.requiredTiles[i];
       
       if (tile.groupSize >= 3) { // Only consider pungs (3), kongs (4), or quints (5+)
+        // Skip if this tile is already part of a matched group
         const groupKey = `${tile.code}-${tile.groupSize}`;
         if (!groupStarts.has(groupKey)) {
           groupStarts.set(groupKey, i);
@@ -96,82 +98,80 @@ export class SimpleTileMatcher {
    * Match the hand against the template variation, including joker matching
    */
   public match(): SimpleMatchResult {
-    const matchedTiles = new Set<number>(); // Indices of matched hand tiles
-    const matchedVariationTiles = new Set<number>(); // Indices of matched variation tiles
+    // Track which hand tiles and variation tiles are matched
+    const matchedHandIndices = new Set<number>();
+    const matchedVariationIndices = new Set<number>();
     const matchedIndices: number[] = [];
     
-    // First pass: exact matching (skip jokers)
-    for (let i = 0; i < this.hand.length; i++) {
-      let handTile = this.hand[i];
-      
-      // Skip jokers in this phase
-      if (handTile === 'J' || handTile === 'JK') continue;
-      
-      // Normalize dragon tile codes in hand
-      handTile = this.normalizeDragonCode(handTile);
-      
-      // Try to find a matching tile in the variation
-      for (let j = 0; j < this.variation.requiredTiles.length; j++) {
-        if (matchedVariationTiles.has(j)) continue; // Skip already matched variation tiles
-        
-        let variantTile = this.variation.requiredTiles[j].code;
-        
-        // Normalize dragon tile codes in template
-        variantTile = this.normalizeDragonCode(variantTile);
-        
-        if (handTile === variantTile) {
-          matchedTiles.add(i);
-          matchedIndices.push(i);
-          matchedVariationTiles.add(j);
-          break; // Move to next hand tile
-        }
-      }
-    }
-    
-    // Second pass: joker matching
-    const groups = this.identifyGroups();
-    
-    // Collect all joker indices from hand that aren't already matched
-    const jokerIndices = [];
+    // First, identify all jokers in the hand
+    const jokerIndices: number[] = [];
     for (let i = 0; i < this.hand.length; i++) {
       const tileCode = this.hand[i];
-      if ((tileCode === 'J' || tileCode === 'JK') && !matchedTiles.has(i)) {
+      if (tileCode === 'J' || tileCode === 'JK') {
         jokerIndices.push(i);
       }
     }
     
-    // Process jokers one by one
-    for (const jokerIndex of jokerIndices) {
-      let jokerMatched = false;
+    // First pass: exact matching (skip jokers)
+    for (let i = 0; i < this.hand.length; i++) {
+      // Skip jokers in this phase
+      if (jokerIndices.includes(i)) continue;
       
-      // Try to match joker to an incomplete group first
-      for (const [_, groupIndices] of groups.entries()) {
-        const matchedInGroup = groupIndices.filter(i => matchedVariationTiles.has(i)).length;
-        const groupSize = groupIndices.length;
+      let handTile = this.hand[i];
+      handTile = this.normalizeDragonCode(handTile);
+      
+      // Try to find a matching tile in the variation
+      for (let j = 0; j < this.variation.requiredTiles.length; j++) {
+        if (matchedVariationIndices.has(j)) continue;
         
-        // Skip complete groups
-        if (matchedInGroup >= groupSize) {
-          continue;
+        let variantTile = this.variation.requiredTiles[j].code;
+        variantTile = this.normalizeDragonCode(variantTile);
+        
+        if (handTile === variantTile) {
+          matchedHandIndices.add(i);
+          matchedIndices.push(i);
+          matchedVariationIndices.add(j);
+          break;
         }
+      }
+    }
+    
+    // Identify groups in the template (pungs, kongs, quints)
+    const groups = this.identifyGroups();
+    
+    // Second pass: use jokers to complete groups first (most valuable use of jokers)
+    for (const jokerIndex of jokerIndices) {
+      if (matchedHandIndices.has(jokerIndex)) continue; // Skip already used jokers
+      
+      let jokerUsed = false;
+      
+      // Try to use joker in a group first
+      for (const [_, groupIndices] of groups.entries()) {
+        const groupTiles = groupIndices.map(i => this.variation.requiredTiles[i]);
+        const groupCode = groupTiles[0]?.code; // All tiles should have the same code
+        
+        // Skip if group is already complete
+        const matchedInGroup = groupIndices.filter(i => matchedVariationIndices.has(i)).length;
+        if (matchedInGroup >= groupIndices.length) continue;
         
         // Find first unmatched tile in this group
-        const unmatchedInGroup = groupIndices.find(i => !matchedVariationTiles.has(i));
+        const unmatchedInGroup = groupIndices.find(i => !matchedVariationIndices.has(i));
         if (unmatchedInGroup !== undefined) {
-          matchedTiles.add(jokerIndex);
+          matchedHandIndices.add(jokerIndex);
           matchedIndices.push(jokerIndex);
-          matchedVariationTiles.add(unmatchedInGroup);
-          jokerMatched = true;
+          matchedVariationIndices.add(unmatchedInGroup);
+          jokerUsed = true;
           break;
         }
       }
       
-      // If joker wasn't used in a group, try to match it to any unmatched tile
-      if (!jokerMatched) {
+      // If joker wasn't used in a group, try to use it for any unmatched tile
+      if (!jokerUsed) {
         for (let j = 0; j < this.variation.requiredTiles.length; j++) {
-          if (!matchedVariationTiles.has(j)) {
-            matchedTiles.add(jokerIndex);
+          if (!matchedVariationIndices.has(j)) {
+            matchedHandIndices.add(jokerIndex);
             matchedIndices.push(jokerIndex);
-            matchedVariationTiles.add(j);
+            matchedVariationIndices.add(j);
             break;
           }
         }
@@ -179,7 +179,7 @@ export class SimpleTileMatcher {
     }
     
     const totalTiles = this.variation.requiredTiles.length;
-    const matchedCount = matchedVariationTiles.size;
+    const matchedCount = matchedVariationIndices.size;
     
     return {
       templateId: this.templateId,
@@ -189,7 +189,8 @@ export class SimpleTileMatcher {
       matchedCount,
       totalTiles,
       matchPercentage: totalTiles > 0 ? Math.round((matchedCount / totalTiles) * 100) : 0,
-      matchedTileIndices: matchedIndices
+      matchedTileIndices: matchedIndices,
+      originalVariationIndex: -1 // This will be set by the analyzer
     };
   }
 }
