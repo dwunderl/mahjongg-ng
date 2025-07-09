@@ -1,369 +1,345 @@
-import React from 'react';
-import { Tile } from '@/types/tile';
-import TileComponent from './Tile';
-import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import { Tile } from '@/types/tile';
 import DraggableTile from './DraggableTile';
+import TileEditor from './TileEditor';
 import styles from './HandDisplay.module.css';
 
-// Extend the Tile type to include matching info
-type ExtendedTile = Tile & {
-  isMatched?: boolean;
-  isJokerMatch?: boolean;
-};
-
-// Define sort type to include 'none' for unsorted
-const SortType = {
-  SUIT: 'suit',
-  NUMBER: 'number',
-  NONE: 'none'
-} as const;
-
-type SortType = typeof SortType[keyof typeof SortType];
+export type SortType = 'suit' | 'number' | 'none';
 
 interface HandDisplayProps {
   tiles: Tile[];
-  onTileClick?: (tile: ExtendedTile) => void;
+  onTileClick?: (tile: Tile) => void;
   onTilesChange?: (tiles: Tile[]) => void;
+  onTileEdit?: (oldTile: Tile, newTile: Tile) => void;
   className?: string;
   selectedTileId?: string | null;
   sortBy?: SortType;
-  onSortChange?: (type: SortType) => void;
-  matchedTileIds?: string[]; // IDs of tiles that match the current template
-  matchedTileIndices?: number[]; // Indices of tiles that were matched using jokers
+  onSortChange?: (sortType: SortType) => void;
+  matchedTileIds?: string[];
+  matchedTileIndices?: number[];
 }
 
-// Extended type for tiles with sorting properties
+interface DraggableTileProps {
+  tile: Tile;
+  index: number;
+  isSelected: boolean;
+  isMatched: boolean;
+  onClick: (tile: Tile, e: React.MouseEvent) => void;
+  onEdit: (tile: Tile, e: React.MouseEvent) => void;
+  moveTile: (dragIndex: number, hoverIndex: number) => void;
+}
+
+interface EditingTile {
+  tile: Tile;
+  index: number;
+  position: { x: number; y: number };
+}
+
+// Define wind order for consistent sorting
+const windOrder: Record<string, number> = {
+  'e': 0, // East
+  's': 1, // South
+  'w': 2, // West
+  'n': 3  // North
+};
+
+// Define suit order for consistent sorting
+const suitOrder: Record<string, number> = {
+  'c': 0, // Crack
+  'b': 1,  // Bam
+  'd': 2,  // Dot
+  'e': 3,  // East
+  's': 4,  // South
+  'w': 5,  // West
+  'n': 6,  // North
+  'rd': 7, // Red Dragon
+  'gd': 8, // Green Dragon
+  'wd': 9, // White Dragon
+  'f': 10, // Flower
+  'j': 11  // Joker
+};
+
+// Type for tiles with additional sort properties
 interface SortableTile extends Tile {
   _sortSuit: string;
   _sortValue: number;
-  _tileType: 'number' | 'dragon' | 'wind' | 'flower' | 'joker';
-  _windOrder?: number; // Only for wind tiles
+  _tileType: string;
 }
 
-// Sort tiles according to Mahjong rules
 const sortTiles = (tiles: Tile[], sortBy: SortType = 'suit'): Tile[] => {
-  // If sortBy is 'none', return the tiles as-is
-  if (sortBy === 'none') {
+  if (sortBy === 'none' || tiles.length === 0) {
     return [...tiles];
   }
-  if (tiles.length === 0) return [];
-  
-  // Separate special tiles (Jokers, Flowers, Winds)
-  const jokers: Tile[] = [];
-  const flowers: Tile[] = [];
-  const winds: Tile[] = [];
-  const regularTiles: Tile[] = [];
-  
-  // Categorize each tile
-  tiles.forEach(tile => {
-    if (tile.isJoker) {
-      jokers.push(tile);
-    } else if (tile.isFlower) {
-      flowers.push(tile);
-    } else if (tile.isHonor && tile.code && ['E', 'S', 'W', 'N'].includes(tile.code)) {
-      // Handle wind tiles (E, S, W, N)
-      winds.push(tile);
-    } else {
-      regularTiles.push(tile);
-    }
-  });
-  
-  console.log('Categorized tiles:', {
-    regularTiles: regularTiles.map(t => t.code),
-    winds: winds.map(t => t.code),
-    flowers: flowers.map(t => t.code),
-    jokers: jokers.map(t => t.code)
-  });
 
-  // Define sort orders
-  const suitOrder: Record<string, number> = {
-    'c': 1,  // Crack
-    'b': 2,  // Bam
-    'd': 3   // Dot
-  };
-
-  // Map dragon codes to their suit and value
-  // Note: Using the new dragon codes (Dc, Db, Dd)
-  const dragonMap: Record<string, { suit: string, value: number }> = {
-    'Dc': { suit: 'c', value: 10 }, // Red Dragon (Crack)
-    'Db': { suit: 'b', value: 10 }, // Green Dragon (Bam)
-    'Dd': { suit: 'd', value: 10 }, // White Dragon (Dot)
-    // Keep legacy codes for backward compatibility
-    'RD': { suit: 'c', value: 10 },
-    'GD': { suit: 'b', value: 10 },
-    'WD': { suit: 'd', value: 10 }
-  };
-
-  // Define wind order for sorting
-  const windOrder: Record<string, number> = { 'E': 1, 'S': 2, 'W': 3, 'N': 4 };
-
-  // Process all tiles with proper typing and tile types
-  const processedTiles: SortableTile[] = [];
-  
-  // Process regular tiles and dragons
-  for (const tile of regularTiles) {
-    // If it's a dragon, map it to its corresponding suit and value 10
-    if ((tile.isHonor && tile.code && (['RD', 'GD', 'WD', 'Dc', 'Db', 'Dd'].includes(tile.code))) ||
-        (tile.code && (tile.code.startsWith('D') && ['c', 'b', 'd'].includes(tile.code[1]?.toLowerCase())))) {
-      // Handle both old and new dragon codes
-      const dragonCode = tile.code.length === 2 && tile.code.startsWith('D') ? 
-                        `D${tile.code[1].toLowerCase()}` : tile.code;
-      const { suit, value } = dragonMap[dragonCode] || { suit: tile.suit?.toLowerCase() || 'c', value: 10 };
-      processedTiles.push({
-        ...tile,
-        _sortSuit: suit,
-        _sortValue: value,
-        _tileType: 'number' // Treat dragons as numbers for sorting
-      } as SortableTile);
-    } else {
-      // Regular numbered tile
-      processedTiles.push({
-        ...tile,
-        _sortSuit: (tile.suit || '').toLowerCase(),
-        _sortValue: tile.value || 0,
-        _tileType: 'number'
-      } as SortableTile);
-    }
-  }
-
-  // Process wind tiles
-  for (const wind of winds) {
-    processedTiles.push({
-      ...wind,
-      _sortSuit: 'w',
-      _sortValue: windOrder[wind.value?.toString() || ''] || 0,
-      _tileType: 'wind',
-      _windOrder: windOrder[wind.value?.toString() || ''] || 0
-    } as SortableTile);
-  }
-
-  // Process flowers
-  for (const flower of flowers) {
-    processedTiles.push({
-      ...flower,
-      _sortSuit: 'f',
+  // Create a processed copy of tiles with sort properties
+  const processedTiles = tiles.map(tile => {
+    const tileCode = tile.code.toLowerCase();
+    const sortableTile: SortableTile = {
+      ...tile,
+      _sortSuit: '',
       _sortValue: 0,
-      _tileType: 'flower'
-    } as SortableTile);
-  }
+      _tileType: 'joker' // Default fallback
+    };
 
-  // Process jokers
-  for (const joker of jokers) {
-    processedTiles.push({
-      ...joker,
-      _sortSuit: 'j',
-      _sortValue: 0,
-      _tileType: 'joker'
-    } as SortableTile);
-  }
-
-  // Define the priority order for tile types
-  const tileTypeOrder: Record<string, number> = {
-    'number': 1,    // Includes both numbers and dragons
-    'wind': 2,
-    'flower': 3,
-    'joker': 4
-  };
-
-  // Sort all tiles
-  const sortedTiles = [...processedTiles].sort((a, b) => {
-    // First sort by tile type (number/dragon < wind < flower < joker)
-    if (tileTypeOrder[a._tileType] !== tileTypeOrder[b._tileType]) {
-      return tileTypeOrder[a._tileType] - tileTypeOrder[b._tileType];
+    // Parse tile code to extract type and properties
+    if (tileCode === 'j') {
+      // Joker
+      sortableTile._tileType = 'joker';
+      sortableTile._sortSuit = 'j';
+      sortableTile._sortValue = 14; // Sort after all other tiles
+    } else if (tileCode === 'f') {
+      // Flower
+      sortableTile._tileType = 'flower';
+      sortableTile._sortSuit = 'f';
+      sortableTile._sortValue = 13; // Sort before jokers
+    } else if (['e', 's', 'w', 'n'].includes(tileCode)) {
+      // Winds
+      sortableTile._tileType = 'wind';
+      sortableTile._sortSuit = tileCode;
+      sortableTile._sortValue = ['e', 's', 'w', 'n'].indexOf(tileCode) + 9; // 9-12
+    } else if (tileCode.startsWith('d') && ['d', 'c', 'b'].includes(tileCode[1])) {
+      // Dragons (Dd, Dc, Db)
+      sortableTile._tileType = 'dragon';
+      const suit = tileCode[1];
+      sortableTile._sortSuit = suit;
+      // Sort as 10 of their respective suit
+      sortableTile._sortValue = 10;
+    } else if (/^[1-9][bcd]$/.test(tileCode)) {
+      // Numbered tiles (1b, 2c, 3d, etc.)
+      sortableTile._tileType = 'numbered';
+      sortableTile._sortSuit = tileCode[1];
+      sortableTile._sortValue = parseInt(tileCode[0], 10);
     }
 
-    // If tile types are the same, use the appropriate sort order
-    if (a._tileType === 'wind' && b._tileType === 'wind') {
-      // Sort winds by their wind order (E, S, W, N)
-      return (a._windOrder || 0) - (b._windOrder || 0);
-    } else if (a._tileType === 'number') {
-      // For numbers and dragons, sort by the current sort mode
-      if (sortBy === 'suit') {
-        // First by suit, then by value
-        if (suitOrder[a._sortSuit] !== suitOrder[b._sortSuit]) {
-          return suitOrder[a._sortSuit] - suitOrder[b._sortSuit];
-        }
+    return sortableTile;
+  });
+
+  // Sort the processed tiles
+  return processedTiles.sort((a, b) => {
+    if (sortBy === 'number') {
+      // Sort by number first, then by suit
+      if (a._sortValue !== b._sortValue) {
         return a._sortValue - b._sortValue;
-      } else {
-        // First by value, then by suit
-        if (a._sortValue !== b._sortValue) {
-          return a._sortValue - b._sortValue;
-        }
-        return suitOrder[a._sortSuit] - suitOrder[b._sortSuit];
       }
+      return (suitOrder[a._sortSuit] || 99) - (suitOrder[b._sortSuit] || 99);
+    } else {
+      // Sort by suit first, then by number
+      const suitDiff = (suitOrder[a._sortSuit] || 99) - (suitOrder[b._sortSuit] || 99);
+      if (suitDiff !== 0) return suitDiff;
+      return a._sortValue - b._sortValue;
     }
-    
-    // For other tile types (flowers, jokers), maintain their original order
-    return 0;
-  });
-
-  // Return the sorted tiles
-  return sortedTiles;
+  }).map(({ _sortSuit, _sortValue, _tileType, ...tile }) => tile);
 };
 
-export default function HandDisplay({ 
-  tiles, 
-  onTileClick, 
-  onTilesChange,
+const HandDisplay: React.FC<HandDisplayProps> = ({
+  tiles: initialTiles,
+  onTileClick = () => {},
+  onTilesChange = () => {},
+  onTileEdit = () => {},
   className = '',
   selectedTileId = null,
-  sortBy = 'suit',
-  onSortChange,
-  matchedTileIds = [],
-  matchedTileIndices = []
-}: HandDisplayProps) {
-  const [displayTiles, setDisplayTiles] = useState<Tile[]>([]);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const prevTilesRef = useRef<Tile[]>([]);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const matchedTileIdsRef = useRef<string[]>(matchedTileIds);
-  const matchedIndicesRef = useRef<number[]>(matchedTileIndices);
-
-  // Update refs when matchedTileIds or matchedTileIndices change
-  useEffect(() => {
-    // Only update if the values have actually changed
-    const idsChanged = JSON.stringify(matchedTileIdsRef.current) !== JSON.stringify(matchedTileIds);
-    const indicesChanged = JSON.stringify(matchedIndicesRef.current) !== JSON.stringify(matchedTileIndices);
-    
-    if (idsChanged || indicesChanged) {
-      console.log('HandDisplay: matchedTileIds updated', {
-        matchedTileIds,
-        matchedTileIndices,
-        displayTilesCount: displayTiles.length
-      });
-      
-      // Update the refs with the latest values
-      matchedTileIdsRef.current = Array.isArray(matchedTileIds) ? [...matchedTileIds] : [];
-      matchedIndicesRef.current = Array.isArray(matchedTileIndices) ? [...matchedTileIndices] : [];
-      
-      // Only force update if we have display tiles
-      if (displayTiles.length > 0) {
-        setDisplayTiles(prevTiles => [...prevTiles]);
-      }
-    }
-  }, [matchedTileIds, matchedTileIndices, displayTiles.length]);
-
-  // Handle sort change
-  const handleSortChange = useCallback((type: SortType) => {
-    onSortChange?.(type);
-  }, [onSortChange]);
-
-  // Sort and update display tiles
-  const [isDragging, setIsDragging] = useState(false);
+  sortBy: initialSortBy = 'suit',
+  onSortChange = () => {},
+  matchedTileIds: initialMatchedTileIds = [],
+  matchedTileIndices: initialMatchedTileIndices = []
+}) => {
+  // Refs
   const dragInProgressRef = useRef(false);
-  const prevSortByRef = useRef(sortBy);
-  const tilesRef = useRef(tiles);
+  const prevSortByRef = useRef<SortType>(initialSortBy);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   
-  useEffect(() => {
-    // Update refs with latest values
-    tilesRef.current = tiles;
-    
-    // Only proceed if we have tiles
-    if (tiles.length === 0) {
-      if (displayTiles.length > 0) {
-        setDisplayTiles([]);
-      }
-      return;
-    }
-    
-    // Don't sort if we're in the middle of a drag operation
-    if (dragInProgressRef.current) {
-      return;
-    }
-    
-    // If sort type changed to 'none', use the current display order if available
-    if (sortBy === 'none' && prevSortByRef.current !== 'none' && displayTiles.length > 0) {
-      // We're switching to 'none' sort, so keep the current display order
-      return;
-    }
-    
-    // If we're in 'none' sort mode and the tiles array reference changes,
-    // only update if the actual tile IDs have changed
-    if (sortBy === 'none') {
-      const tilesChanged = tiles.length !== displayTiles.length ||
-        tiles.some((tile, i) => !displayTiles[i] || tile.id !== displayTiles[i].id);
-      
-      if (tilesChanged) {
-        setDisplayTiles([...tiles]);
-      }
-      return;
-    }
-    
-    // For 'suit' or 'number' sort, apply the sort
-    const sortedTiles = sortTiles(tiles, sortBy);
-    
-    // Only update if the order has actually changed
-    const hasChanged = displayTiles.length !== sortedTiles.length ||
-      sortedTiles.some((tile, i) => !displayTiles[i] || tile.id !== displayTiles[i].id);
-    
-    if (hasChanged) {
-      setDisplayTiles(sortedTiles);
-    }
-    
-    // Update the previous sort type
-    prevSortByRef.current = sortBy;
-  }, [tiles, sortBy, displayTiles]);
+  // State
+  const [displayTiles, setDisplayTiles] = useState<Tile[]>(initialTiles);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [editingTile, setEditingTile] = useState<EditingTile | null>(null);
+  const [sortBy, setSortBy] = useState<SortType>(initialSortBy);
+  const [matchedTileIds, setMatchedTileIds] = useState<string[]>(initialMatchedTileIds);
+  const [matchedTileIndices, setMatchedTileIndices] = useState<number[]>(initialMatchedTileIndices);
+  
+  const prevTilesRef = useRef<Tile[]>(initialTiles);
+  const matchedTileIdsRef = useRef<string[]>(initialMatchedTileIds);
+  const matchedIndicesRef = useRef<number[]>(initialMatchedTileIndices);
 
-  // Handle tile reordering with proper state updates
-  const moveTile = useCallback((dragIndex: number, hoverIndex: number) => {
-    // Only proceed if the position actually changed and we have valid indices
-    if (dragIndex === hoverIndex || 
-        dragIndex < 0 || 
-        dragIndex >= displayTiles.length ||
-        hoverIndex < 0 || 
-        hoverIndex > displayTiles.length) {
-      return;
+  // Update display tiles when tiles or sortBy changes
+  useEffect(() => {
+    console.log('Initial tiles or sortBy changed. Drag in progress:', dragInProgressRef.current);
+    
+    // Only update display tiles if we're not in the middle of a drag operation
+    if (!dragInProgressRef.current) {
+      console.log('Updating display tiles with sortBy:', sortBy);
+      const sortedTiles = sortTiles(initialTiles, sortBy);
+      console.log('Sorted tiles:', sortedTiles.map((t, i) => `${t.id}@${i}`));
+      setDisplayTiles(sortedTiles);
+    } else {
+      console.log('Skipping display tiles update - drag in progress');
     }
     
-    // Set drag in progress flag
+    // Reset the drag in progress flag after a short delay
+    // This prevents the display from jumping back after a drag ends
+    const timer = setTimeout(() => {
+      if (dragInProgressRef.current) {
+        console.log('Resetting drag in progress flag');
+        dragInProgressRef.current = false;
+      }
+    }, 150);
+    
+    prevSortByRef.current = sortBy;
+    
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [initialTiles, sortBy]);
+  
+  // Refs are already declared at the top of the component
+
+  // Handle tile click
+  const handleTileClick = useCallback((tile: Tile, e: React.MouseEvent) => {
+    // Handle the event safely
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
+    onTileClick(tile);
+  }, [onTileClick]);
+
+  // Handle tile edit
+  const handleTileEdit = useCallback((tile: Tile, e: React.MouseEvent | { currentTarget?: HTMLElement; target?: HTMLElement }) => {
+    // Handle the event safely if it's a MouseEvent
+    if (e && 'preventDefault' in e) {
+      if (typeof e.preventDefault === 'function') {
+        e.preventDefault();
+      }
+      if (typeof e.stopPropagation === 'function') {
+        e.stopPropagation();
+      }
+    }
+    
+    try {
+      // Get the target element safely
+      let target: HTMLElement | null = null;
+      
+      if (e) {
+        if ('currentTarget' in e) {
+          target = e.currentTarget as HTMLElement;
+        } else if ('target' in e) {
+          target = e.target as HTMLElement;
+        }
+      }
+      
+      const rect = target?.getBoundingClientRect() || { left: 0, top: 0 };
+      
+      // Set sort type to 'none' when editing to prevent tile jump
+      if (sortBy !== 'none') {
+        onSortChange('none');
+      }
+      
+      setEditingTile({
+        tile,
+        index: displayTiles.findIndex(t => t.id === tile.id),
+        position: { x: rect.left, y: rect.top }
+      });
+    } catch (error) {
+      console.error('Error in handleTileEdit:', error);
+      // Fallback position if we can't get the target's position
+      setEditingTile({
+        tile,
+        index: displayTiles.findIndex(t => t.id === tile.id),
+        position: { x: 0, y: 0 }
+      });
+    }
+  }, [displayTiles]);
+
+  // Handle saving edited tile
+  const handleSaveEdit = useCallback((updatedTile: Tile) => {
+    if (!editingTile) return;
+    
+    // Call the parent's onTileEdit handler with both old and new tile
+    onTileEdit(editingTile.tile, updatedTile);
+    
+    // Close the editor
+    setEditingTile(null);
+    
+    // Update the tile in the display while preserving the current order
+    setDisplayTiles(prevTiles => {
+      return prevTiles.map(tile => 
+        tile.id === editingTile.tile.id 
+          ? { ...updatedTile, id: editingTile.tile.id }
+          : tile
+      );
+    });
+  }, [editingTile, onTileEdit]);
+
+  // Handle drag and drop with improved state management
+  const moveTile = useCallback((dragIndex: number, hoverIndex: number) => {
+    if (dragIndex === hoverIndex) return;
+    
+    console.log(`Moving tile from index ${dragIndex} to ${hoverIndex}`);
+    
+    // Mark that a drag is in progress
     dragInProgressRef.current = true;
     
-    // Switch to unsorted mode when tiles are manually reordered
-    if (onSortChange && sortBy !== 'none') {
+    setDisplayTiles(prevTiles => {
+      // Create a new array to avoid mutating the previous state directly
+      const newTiles = [...prevTiles];
+      
+      // Get the tile being moved
+      const movedTile = newTiles[dragIndex];
+      
+      // Create a new tile object to ensure React sees it as a change
+      const updatedTile = { ...movedTile };
+      
+      // Remove the dragged tile
+      newTiles.splice(dragIndex, 1);
+      
+      // Insert the tile at the new position
+      newTiles.splice(hoverIndex, 0, updatedTile);
+      
+      console.log('New tile order:', newTiles.map((t, i) => `${t.id}@${i}`));
+      
+      // Update the parent component with the new order
+      // Use a timeout to ensure this happens after the state update
+      setTimeout(() => {
+        if (onTilesChange) {
+          onTilesChange([...newTiles]);
+        }
+      }, 0);
+      
+      return newTiles;
+    });
+    
+    // Update sort type to 'none' to preserve manual order
+    if (sortBy !== 'none') {
+      console.log('Setting sort type to none');
+      setSortBy('none');
       onSortChange('none');
     }
     
-    setDisplayTiles(prevTiles => {
-      // Create a new array to avoid mutating the previous state
-      const newTiles = [...prevTiles];
-      
-      // Remove the dragged tile while preserving its matched state
-      const [movedTile] = newTiles.splice(dragIndex, 1);
-      
-      // Insert it at the new position
-      newTiles.splice(hoverIndex, 0, movedTile);
-      
-      // Ensure the moved tile maintains its matched state
-      const updatedTiles = newTiles.map((tile, idx) => ({
-        ...tile,
-        isMatched: matchedTileIds?.includes(tile.id) || false,
-        isJokerMatch: matchedTileIndices?.includes(idx) || false
-      }));
-      
-      // Notify parent of the change
-      if (onTilesChange) {
-        onTilesChange([...updatedTiles]);
-      }
-      
-      return updatedTiles;
-    });
-    
-    // Reset drag in progress after a short delay
+    // Force a re-render to ensure the UI updates
     setTimeout(() => {
       dragInProgressRef.current = false;
-    }, 100);
-  }, [displayTiles.length, onTilesChange, onSortChange, sortBy, matchedTileIds, matchedTileIndices]);
+    }, 0);
+    
+  }, [onTilesChange, onSortChange, sortBy]);
 
-  // Check if a tile is matched using its ID
-  const isTileMatched = useCallback((tileId: string) => {
-    if (!matchedTileIds || !Array.isArray(matchedTileIds)) {
-      return false;
+  // Handle sort changes
+  const handleSortChange = useCallback((newSortBy: SortType) => {
+    // Don't sort if we're in the middle of editing
+    if (editingTile) return;
+    
+    setSortBy(newSortBy);
+    onSortChange(newSortBy);
+    
+    if (newSortBy !== 'none') {
+      const sorted = sortTiles(displayTiles, newSortBy);
+      setDisplayTiles(sorted);
     }
-    return matchedTileIds.includes(tileId);
-  }, [matchedTileIds]);
-  
+  }, [displayTiles, onSortChange]);
+
   // Update tile matched states when matchedTileIds or matchedTileIndices change
   useEffect(() => {
     setDisplayTiles(prevTiles => {
@@ -386,111 +362,148 @@ export default function HandDisplay({
         isJokerMatch: matchedTileIndices?.includes(prevTiles.indexOf(tile)) || false
       }));
     });
-  }, [matchedTileIds, matchedTileIndices]);
+  }, [matchedTileIds, matchedTileIndices, displayTiles.length]);
 
-  // Handle tile click
-  const handleTileClick = useCallback((tile: Tile) => {
-    if (onTileClick) {
-      onTileClick({ ...tile, isMatched: isTileMatched(tile.id) });
+  // Handle overlay click
+  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
+    try {
+      e.preventDefault?.();
+      e.stopPropagation?.();
+    } catch (error) {
+      console.error('Error in handleOverlayClick:', error);
     }
-  }, [onTileClick, isTileMatched]);
+    setEditingTile(null);
+  }, []);
+
+  // Handle editor click
+  const handleEditorClick = useCallback((e: React.MouseEvent) => {
+    try {
+      e.preventDefault?.();
+      e.stopPropagation?.();
+    } catch (error) {
+      console.error('Error in handleEditorClick:', error);
+    }
+  }, []);
+
+  // Render the tile editor popup
+  const renderTileEditor = useCallback(() => {
+    if (!editingTile) return null;
+    
+    return (
+      <div 
+        className={styles.tileEditorOverlay}
+        style={{
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          width: '100%',
+          height: '100%',
+          zIndex: 1000,
+          pointerEvents: 'none',
+        }}
+        onClick={handleOverlayClick}
+      >
+        <div 
+          ref={editorRef}
+          className={styles.tileEditor}
+          style={{
+            position: 'absolute',
+            left: `${editingTile.position.x}px`,
+            top: `${editingTile.position.y}px`,
+            zIndex: 1001,
+            pointerEvents: 'auto',
+          }}
+          onClick={handleEditorClick}
+        >
+          <TileEditor
+            tile={editingTile.tile}
+            onSave={handleSaveEdit}
+            onClose={() => setEditingTile(null)}
+            position={editingTile.position}
+          />
+        </div>
+      </div>
+    );
+  }, [editingTile, handleSaveEdit]);
 
   // Render a single tile
   const renderTile = useCallback((tile: Tile, index: number) => {
     const isSelected = selectedTileId === tile.id;
-    const isMatched = isTileMatched(tile.id);
-    const isJokerMatch = matchedTileIndices?.includes(index) || false;
+    const isMatched = matchedTileIds.includes(tile.id) || matchedTileIndices.includes(index);
     
     return (
       <DraggableTile
-        key={`${tile.id}-${index}`}
+        key={tile.id}
         tile={tile}
         index={index}
-        moveTile={moveTile}
-        onClick={handleTileClick}
         isSelected={isSelected}
         isMatched={isMatched}
-        isJokerMatch={isJokerMatch}
+        onClick={handleTileClick}
+        onEdit={handleTileEdit}
+        moveTile={moveTile}
       />
     );
-  }, [selectedTileId, isTileMatched, handleTileClick, moveTile, matchedTileIndices]);
+  }, [selectedTileId, matchedTileIds, matchedTileIndices, handleTileClick, handleTileEdit, moveTile]);
 
-  const renderContent = () => {
-    // Ensure we have valid arrays for matchedTileIds and matchedTileIndices
-    const safeMatchedTileIds = Array.isArray(matchedTileIds) ? matchedTileIds : [];
-    const safeMatchedIndices = Array.isArray(matchedTileIndices) ? matchedTileIndices : [];
-    const showLegend = safeMatchedTileIds.length > 0 || safeMatchedIndices.length > 0;
-    
-    return (
-      <div 
-        ref={containerRef} 
-        className={`${styles.handContainer} ${isAnimating ? styles.animating : ''} ${className || ''}`}
+  // Render sort controls
+  const renderSortControls = useCallback(() => (
+    <div className={styles.sortControls}>
+      <button 
+        className={`${styles.sortButton} ${sortBy === 'suit' ? styles.activeSort : ''}`}
+        onClick={() => handleSortChange('suit')}
+        title="Sort by suit (Crack, Bam, Dot, then honors)"
       >
-        {onSortChange && (
-          <div className={styles.sortControls}>
-            <button 
-              className={`${styles.sortButton} ${sortBy === 'suit' ? styles.activeSort : ''}`}
-              onClick={() => handleSortChange('suit')}
-              title="Sort tiles by suit (Crack, Bam, Dot, then honors)"
-            >
-              Sort by Suit
-            </button>
-            <button 
-              className={`${styles.sortButton} ${sortBy === 'number' ? styles.activeSort : ''}`}
-              onClick={() => handleSortChange('number')}
-              title="Sort tiles by number (1-9, then honors)"
-            >
-              Sort by Number
-            </button>
-            <button 
-              className={`${styles.sortButton} ${sortBy === 'none' ? styles.activeSort : ''}`}
-              onClick={() => handleSortChange('none')}
-              title="Keep current tile order (drag and drop to rearrange)"
-            >
-              Unsorted
-            </button>
-          </div>
-        )}
+        Sort by Suit
+      </button>
+      <button 
+        className={`${styles.sortButton} ${sortBy === 'number' ? styles.activeSort : ''}`}
+        onClick={() => handleSortChange('number')}
+        title="Sort by number (1-9, then honors)"
+      >
+        Sort by Number
+      </button>
+      <button 
+        className={`${styles.sortButton} ${sortBy === 'none' ? styles.activeSort : ''}`}
+        onClick={() => handleSortChange('none')}
+        title="Keep current tile order (drag and drop to rearrange)"
+      >
+        Unsorted
+      </button>
+    </div>
+  ), [handleSortChange, sortBy, styles]);
+
+  // Main render
+  return (
+    <DndProvider backend={HTML5Backend}>
+      <div 
+        className={`${styles.handDisplay} ${className} ${isAnimating ? styles.animating : ''}`}
+        ref={containerRef}
+      >
+        {renderSortControls()}
         <div 
           className={styles.tilesContainer}
           style={{
-            minHeight: '100px',
-            padding: '10px',
-            borderRadius: '8px',
-            backgroundColor: '#f5f5f5',
             display: 'flex',
             flexWrap: 'wrap',
             gap: '4px',
-            alignItems: 'center'
+            justifyContent: 'center',
+            padding: '8px',
+            minHeight: '80px',
+            backgroundColor: '#f5f5f5',
+            borderRadius: '4px',
+            border: '1px solid #ddd',
           }}
         >
           {displayTiles.length > 0 ? (
-            displayTiles.map((tile: Tile, index: number) => renderTile(tile, index))
+            displayTiles.map((tile, index) => renderTile(tile, index))
           ) : (
             <div className={styles.emptyState}>No tiles in hand</div>
           )}
         </div>
-        
-        {/* Always render the legend to prevent layout shifts, but control visibility with CSS */}
-        {showLegend && (
-          <div className={styles.matchLegend}>
-            <div className={styles.legendItem}>
-              <div className={`${styles.legendColor} ${styles.matched}`} />
-              <span>Matched Tiles</span>
-            </div>
-            <div className={styles.legendItem}>
-              <div className={`${styles.legendColor} ${styles.jokerMatch}`} />
-              <span>Joker Matches</span>
-            </div>
-          </div>
-        )}
+        {editingTile && renderTileEditor()}
       </div>
-    );
-  };
-
-  return (
-    <DndProvider backend={HTML5Backend}>
-      {renderContent()}
     </DndProvider>
   );
 }
+
+export default HandDisplay;

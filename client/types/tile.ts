@@ -11,6 +11,9 @@ export interface Tile {
   isJoker: boolean;  // Whether it's a joker
   isMatched?: boolean; // Whether the tile is part of a matched set
   isJokerMatch?: boolean; // Whether the tile is matched using a joker
+  position?: number; // Position in the hand (0-based index)
+  _sortIndex?: number; // Internal: Used to preserve sort order
+  _sortType?: 'suit' | 'number' | 'none'; // Internal: Last sort type applied
 }
 
 export interface TileGroup {

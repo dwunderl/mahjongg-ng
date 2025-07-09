@@ -1,184 +1,332 @@
-import { useDrag, useDrop } from 'react-dnd';
+import { useDrag, useDrop, DropTargetMonitor } from 'react-dnd';
 import { Tile as TileType } from '@/types/tile';
 import Tile from './Tile';
-import { useRef, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
+import { XYCoord } from 'dnd-core';
 import styles from './Tile.module.css';
 
-// Define the drag item type for better type safety
 interface DragItem {
+  type: string;
   id: string;
   index: number;
-  type: string;
+  isMatched?: boolean;
+  isJokerMatch?: boolean;
+  timestamp: number;
 }
 
 interface DraggableTileProps {
   tile: TileType;
   index: number;
   moveTile: (dragIndex: number, hoverIndex: number) => void;
-  onClick: (tile: TileType) => void;
+  onClick: (tile: TileType, e: React.MouseEvent) => void;
+  onEdit?: (tile: TileType, e: React.MouseEvent) => void;
   isSelected?: boolean;
   isMatched?: boolean;
   isJokerMatch?: boolean;
   opacity?: number;
 }
 
-export default function DraggableTile({
+const DraggableTile: React.FC<DraggableTileProps> = ({
   tile,
   index,
   moveTile,
   onClick,
+  onEdit,
   isSelected = false,
   isMatched = false,
   isJokerMatch = false,
   opacity = 1,
-}: DraggableTileProps) {
-  const ref = useRef<HTMLDivElement>(null);
+}) => {
+  // Refs
+  const dragRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const clickCountRef = useRef(0);
 
+  // State
+  const [isPressing, setIsPressing] = useState(false);
+  const [isDraggingState, setIsDraggingState] = useState(false);
+
+  // Set up drag and drop
   const [{ isDragging }, drag, preview] = useDrag({
     type: 'TILE',
-    item: () => {
-      // Include all necessary tile data in the drag item
-      return { 
-        id: tile.id, 
-        index, 
-        type: 'TILE',
-        isMatched: tile.isMatched || isMatched,
-        isJokerMatch: tile.isJokerMatch || isJokerMatch
-      } as const;
-    },
+    item: (): DragItem => ({
+      id: tile.id,
+      index,
+      type: 'TILE',
+      isMatched: tile.isMatched || isMatched,
+      isJokerMatch: tile.isJokerMatch || isJokerMatch,
+      timestamp: Date.now(),
+    }),
     collect: (monitor) => ({
       isDragging: monitor.isDragging(),
     }),
-    canDrag: true,
-    end: (item, monitor) => {
-      if (monitor.didDrop()) {
-        // The drop was successful
-        // Force an update to ensure the tile's state is correct after drop
-        setTimeout(() => {
-          // This will trigger a re-render with the correct state
-          onClick(tile);
-        }, 0);
-      }
-    },
+    canDrag: !isMatched && !isJokerMatch,
   });
 
-  const [, drop] = useDrop<DragItem>({
+  // Update drag state when dragging starts/ends
+  useEffect(() => {
+    if (isDragging) {
+      isDraggingRef.current = true;
+      setIsDraggingState(true);
+    } else {
+      isDraggingRef.current = false;
+      setIsDraggingState(false);
+    }
+  }, [isDragging]);
+
+  const [, drop] = useDrop({
     accept: 'TILE',
-    hover(item: DragItem, monitor) {
-      if (!ref.current) {
-        return;
-      }
-      
+    hover: (item: DragItem, monitor: DropTargetMonitor) => {
+      if (!dragRef.current) return;
       const dragIndex = item.index;
       const hoverIndex = index;
 
       // Don't replace items with themselves
-      if (dragIndex === hoverIndex) {
-        return;
-      }
+      if (dragIndex === hoverIndex) return;
 
       // Determine rectangle on screen
-      const hoverBoundingRect = ref.current?.getBoundingClientRect();
-      
-      // Get horizontal middle (since tiles are in a row)
-      const hoverMiddleX = (hoverBoundingRect.right - hoverBoundingRect.left) / 2;
-      
+      const hoverBoundingRect = dragRef.current.getBoundingClientRect();
+      // Get vertical middle
+      const hoverMiddleY = (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2;
       // Determine mouse position
       const clientOffset = monitor.getClientOffset();
       if (!clientOffset) return;
       
-      // Get pixels to the left
-      const hoverClientX = clientOffset.x - hoverBoundingRect.left;
+      // Get pixels to the top
+      const hoverClientY = clientOffset.y - hoverBoundingRect.top;
 
-      // Only perform the move when the mouse has crossed half of the item's width
-      if (dragIndex < hoverIndex && hoverClientX < hoverMiddleX) {
-        return;
-      }
-      
-      // Dragging left
-      if (dragIndex > hoverIndex && hoverClientX > hoverMiddleX) {
-        return;
-      }
+      // Only perform the move when the mouse has crossed half of the items height
+      // When dragging downwards, only move when the cursor is below 50%
+      // When dragging upwards, only move when the cursor is above 50%
+      if (dragIndex < hoverIndex && hoverClientY < hoverMiddleY) return;
+      if (dragIndex > hoverIndex && hoverClientY > hoverMiddleY) return;
 
       // Time to actually perform the action
-      // Use requestAnimationFrame to ensure smooth animations
-      requestAnimationFrame(() => {
-        moveTile(dragIndex, hoverIndex);
-        // Update the index for the dragged item
-        item.index = hoverIndex;
-      });
-    }
+      moveTile(dragIndex, hoverIndex);
+
+      // Note: we're mutating the monitor item here!
+      // Generally it's better to avoid mutations,
+      // but it's good here for the sake of performance
+      // to avoid expensive index searches.
+      item.index = hoverIndex;
+    },
   });
 
+  // Combine drag and drop refs using a ref callback
+  const dragDropRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      // Connect the node to the drag and drop system
+      const dragDropNode = drag(drop(node));
+      // Update our ref
+      if (node) {
+        (dragRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      }
+      return dragDropNode;
+    },
+    [drag, drop]
+  );
+
+  // Cleanup timers on unmount
   useEffect(() => {
-    if (ref.current) {
-      drag(drop(ref));
+    return () => {
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+        clickTimerRef.current = null;
+      }
+      if (pressTimerRef.current) {
+        clearTimeout(pressTimerRef.current);
+        pressTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Handle double click for editing
+  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (onEdit) {
+      onEdit(tile, e);
     }
-  }, [drag, drop]);
+  }, [onEdit, tile]);
 
-  // Show highlight if the tile is matched, either through props or tile data
-  const showMatched = tile.isMatched || isMatched;
-  const showJokerMatch = tile.isJokerMatch || isJokerMatch;
-  
-  const tileClasses = [
-    styles.tileWrapper,
-    showMatched && styles.matchedTile,
-    showJokerMatch && styles.jokerMatchTile,
-    isDragging && styles.dragging,
-    isSelected && styles.selectedTile
-  ].filter(Boolean).join(' ');
+  // Handle pointer down for drag start
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Don't prevent default to allow native drag operations
+      e.stopPropagation();
 
-  // Calculate styles based on state
-  const tileStyle: React.CSSProperties = {
-    opacity: isDragging ? 0.7 : opacity,
-    cursor: isDragging ? 'grabbing' : 'grab',
-    position: 'relative',
-    display: 'inline-flex',
-    margin: '0 1px',
-    transition: isDragging ? 'transform 0.1s ease, opacity 0.1s ease' : 'transform 0.2s ease, opacity 0.2s ease',
-    transform: isDragging ? 'scale(1.15) rotate(2deg) translateY(-5px)' : 'scale(1)',
-    zIndex: isDragging ? 100 : isSelected ? 10 : 1,
-    filter: isDragging ? 'drop-shadow(0 5px 10px rgba(0,0,0,0.3))' : 'none',
-    touchAction: 'none', // Important for touch devices
-    userSelect: 'none', // Prevent text selection during drag
-    willChange: 'transform', // Optimize for animations
-  };
+      // Only handle left mouse button or touch
+      if (e.button !== 0 && e.pointerType === 'mouse') return;
 
-  // Use the preview ref for the drag preview
-  const previewRef = useRef<HTMLDivElement>(null);
-  
-  // Set up the preview element
-  useEffect(() => {
-    if (previewRef.current) {
-      preview(previewRef.current);
+      // Set pressing state
+      setIsPressing(true);
+      isDraggingRef.current = false;
+
+      // Set up press timer for long press detection with a delay
+      pressTimerRef.current = setTimeout(() => {
+        // Only trigger edit if we're still pressing and not dragging
+        if (isPressing && onEdit && !isDraggingRef.current) {
+          const syntheticEvent = {
+            ...e,
+            preventDefault: () => e.preventDefault(),
+            stopPropagation: () => e.stopPropagation(),
+            currentTarget: e.currentTarget,
+            target: e.target,
+          } as unknown as React.MouseEvent;
+
+          onEdit(tile, syntheticEvent);
+          // Reset states after edit
+          setIsPressing(false);
+          isDraggingRef.current = false;
+        }
+      }, 300); // Reduced to 300ms for better UX
+
+      // Add pointer capture for reliable drag detection
+      const target = e.currentTarget as HTMLElement;
+      target.setPointerCapture(e.pointerId);
+    },
+    [onEdit, tile]
+  );
+
+  // Handle pointer up for drag end or click
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Clear press timer
+      if (pressTimerRef.current) {
+        clearTimeout(pressTimerRef.current);
+        pressTimerRef.current = null;
+      }
+
+      // Only handle left mouse button or touch
+      if (e.button !== 0 && e.pointerType === 'mouse') return;
+
+      // If we were pressing and not dragging, handle as click
+      if (isPressing && !isDraggingRef.current) {
+        clickCountRef.current++;
+
+        // Handle double click
+        if (clickCountRef.current === 1) {
+          clickTimerRef.current = setTimeout(() => {
+            // Single click handler
+            onClick(tile, e as unknown as React.MouseEvent);
+            clickCountRef.current = 0;
+          }, 200);
+        } else {
+          // Double click handler
+          if (clickTimerRef.current) {
+            clearTimeout(clickTimerRef.current);
+            clickTimerRef.current = null;
+          }
+          if (onEdit) {
+            onEdit(tile, e as unknown as React.MouseEvent);
+          }
+          clickCountRef.current = 0;
+        }
+      }
+
+      // Reset states
+      setIsPressing(false);
+      isDraggingRef.current = false;
+
+      // Release pointer capture
+      const target = e.currentTarget as HTMLElement;
+      target.releasePointerCapture(e.pointerId);
+    },
+    [isPressing, onClick, onEdit, tile]
+  );
+
+  // Handle pointer cancel (e.g., when dragging outside the window)
+  const handlePointerCancel = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Clear timers
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
     }
-  }, [preview]);
+
+    // Reset states
+    setIsPressing(false);
+    isDraggingRef.current = false;
+
+    // Release pointer capture
+    const target = e.currentTarget as HTMLElement;
+    target.releasePointerCapture(e.pointerId);
+  }, []);
+
+  // Handle mouse move for drag detection
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isPressing && !isDraggingRef.current) {
+      // Clear any pending edit timer
+      if (pressTimerRef.current) {
+        clearTimeout(pressTimerRef.current);
+        pressTimerRef.current = null;
+      }
+      
+      // Only start dragging if we've moved a minimum distance
+      const moveThreshold = 5; // pixels
+      const deltaX = Math.abs(e.movementX);
+      const deltaY = Math.abs(e.movementY);
+      
+      if (deltaX > moveThreshold || deltaY > moveThreshold) {
+        isDraggingRef.current = true;
+        setIsDraggingState(true);
+      }
+    }
+  }, [isPressing]);
+
+  // Handle mouse leave to clean up drag state
+  const handleMouseLeave = useCallback((e: React.MouseEvent) => {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+
+    if (isPressing) {
+      setIsPressing(false);
+      isDraggingRef.current = false;
+    }
+  }, [isPressing]);
+
+  // Determine if we should show matched or joker match states
+  const showMatched = isMatched || tile.isMatched;
+  const showJokerMatch = isJokerMatch || tile.isJokerMatch;
 
   return (
-    <div 
-      ref={ref}
-      className={tileClasses}
-      style={tileStyle}
-      onMouseDown={(e) => {
-        e.stopPropagation(); // Prevent text selection while dragging
-        onClick(tile); // Call the click handler with the tile
+    <div
+      ref={dragDropRef}
+      className={`${styles.tile} ${isSelected ? styles.selected : ''} ${
+        isDragging || isDraggingState ? styles.dragging : ''
+      } ${showMatched ? styles.matched : ''} ${
+        showJokerMatch ? styles.jokerMatch : ''
+      }`}
+      style={{ opacity }}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      onDoubleClick={handleDoubleClick}
+      onContextMenu={(e) => e.preventDefault()}
+      onTouchMove={(e) => {
+        // Prevent default to avoid scrolling while dragging
+        e.preventDefault();
+        handleMouseMove(e as any);
       }}
     >
-      <div 
-        ref={previewRef}
-        style={{ position: 'relative', width: '100%', height: '100%', pointerEvents: 'none' }}
-      >
-        <Tile
-          tile={{
-            ...tile,
-            isMatched: showMatched,
-            isJokerMatch: showJokerMatch
-          }}
-          isSelected={isSelected}
-          isMatched={showMatched}
-          isJokerMatch={showJokerMatch}
-        />
-      </div>
+      <Tile
+        tile={tile}
+        isSelected={isSelected}
+        isMatched={showMatched}
+        isJokerMatch={showJokerMatch}
+      />
     </div>
   );
-}
+};
+
+export default DraggableTile;
